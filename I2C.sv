@@ -1,6 +1,7 @@
 `default_nettype none
 
-module I2C_Driver(
+module I2C_Driver
+(
   input logic  clock, reset_n,
   input logic  read, write,
   input logic  slave_addr, word_addr,
@@ -9,47 +10,96 @@ module I2C_Driver(
   output tri   SDA
 );
 
-  enum logic [3:0] {IDLE, READ0, READ1, READ2, READ3, READ4, READ5} currState, nextState;
+  logic [6:0] device_address;
+  assign device_address = 7'b0000001;
 
-  logic [7:0] message_buff;
-  logic [7:0] buffer;
-  logic [7:0] read_buffer;
-  logic [7:0] count;
-  logic load;
-  logic done_sending_data;
 
-  assign done_sending_data = (count == 8'd8);
+  logic [3:0] slave_address_counter;
+  logic       slave_address_received;
+  logic       slave_address_count_en;
+  logic       slave_address_count_clr;
+  logic       slave_address_shift_en;
+  logic       slave_address_clr;
+  logic [6:0] slave_address_on_bus;
 
-  logic idle, shift_en, count_en, count_clr, clock_propagate;
+  assign slave_address_received = slave_address_count == 4'd7;
+
   always_ff @(posedge clock, negedge reset_n) begin
     if(~reset_n) begin
-      count <= 8'd0;
+      slave_address_count <= 8'd0;
     end
-    else if(count_en) begin
-      count <= count + 1;
+    else if(slave_address_count_en) begin
+      slave_address_count <= slave_address_count + 1;
     end
-    else if(count_clr) begin
-      count <= 8'd0;
+    else if(slave_address_count_clr) begin
+      slave_address_count <= 8'd0;
     end
   end
 
   always_ff @(posedge clock, negedge reset_n) begin
     if(~reset_n) begin
-      message_buff <= 8'd0;
+      slave_address_on_bus <= 7'd0;
     end
-    else if(load) begin
-      message_buff <= read_buffer;
+    else if(slave_address_shift_en) begin
+      slave_address_on_bus <= {slave_address_on_bus[5:0], SDA};
     end
-    else if(idle) begin
-      message_buff <= 8'd0;
-    end
-    else if(shift_en) begin
-      SDA <= message_buff[0];
-      message_buff <= {1'b0, message_buff[7:1]};
+    else if(slave_address_clr) begin
+      slave_address_on_bus <= 7'd0;
     end
   end
 
- always_ff @(posedge clock, negedge reset_n) begin
+  logic [3:0] memory_address_counter;
+  logic       memory_address_received;
+  logic       memory_address_count_en;
+  logic       memory_address_count_clr;
+  logic       memory_address_shift_en;
+  logic       memory_address_clr;
+  logic [6:0] memory_address_on_bus;
+
+  assign memory_address_received = memory_address_count = 4'd7;
+
+  always_ff @(posedge clock, negedge reset_n) begin
+    if(~reset_n) begin
+      memory_address_counter <= 8'd0;
+    end
+    else if(memory_address_count_en) begin
+      memory_address_counter <= memory_address_counter + 1;
+    end
+    else if(memory_address_count_clr) begin
+      memory_address_counter <= 8'd0;
+    end
+  end
+
+  always_ff @(posedge clock, negedge reset_n) begin
+    if(~reset_n) begin
+      memory_address_on_bus <= 7'd0;
+    end
+    else if(memory_address_shift_en) begin
+      memory_address_on_bus <= {memory_address_on_bus [5:0], SDA};
+    end
+    else if(memory_address_clr) begin
+      memory_address_on_bus <= 7'd0;
+    end
+  end
+
+  logic [7:0] mem_read_data;
+  logic [7:0] mem_write_data;
+
+  Memory memory_module
+  (
+    .data_read(mem_read_data),
+    .data_write(mem_write_data),
+    .address(memory_address_on_bus),
+    .re_weN(read_write_enable),
+    .clk(clock),
+    .reset_n(reset_n)
+  );
+
+  logic start_bit;
+
+  enum logic [3:0] {IDLE, START, READ1, WRITE1} currState, nextState;
+
+  always_ff @(posedge clock, negedge reset_n) begin
     if(~reset_n) begin
       currState <= IDLE;
     end
@@ -58,96 +108,11 @@ module I2C_Driver(
     end
   end
 
-  assign SCL = clock;
-
   always_comb begin
-    nextState = IDLE;
-    load = 1'b0;
-    idle = 1'b0;
-    count_clr = 1'b0;
-    count_en = 1'b0;
-    shift_en = 1'b0;
     unique case(currState)
       IDLE: begin
-        nextState = READ0;
-        load = 1'b0;
-        idle = 1'b1;
-        count_clr = 1'b1;
-        count_en = 1'b0;
-        shift_en = 1'b0;
+        nextState = start_bit ? START : IDLE;
       end
-      READ0: begin
-        nextState = READ1;
-        load = 1'b1;
-        idle = 1'b0;
-        count_clr = 1'b0;
-        count_en = 1'b0;
-        shift_en = 1'b0;
-      end
-      READ1: begin
-        nextState = done_sending_data ? READ2 : READ1;
-        load = 1'b0;
-        idle = 1'b0;
-        count_en = 1'b1;
-        count_clr = 1'b0;
-        shift_en = 1'b1;
-      end
-      READ2: begin
-        if(SDA == 1'b0) begin
-          nextState = READ3;
-          load = 1'b0;
-          idle = 1'b0;
-          count_en = 1'b0;
-          count_clr = 1'b0;
-          shift_en = 1'b0;
-        end
-        else begin
-          nextState = READ2;
-          load = 1'b0;
-          idle = 1'b0;
-          count_en = 1'b0;
-          count_clr = 1'b0;
-          shift_en = 1'b0;
-        end
-      end
-      READ3: begin
-        nextState = READ4;
-        load = 1'b1;
-        idle = 1'b0;
-        count_en = 1'b0;
-        count_clr = 1'b1;
-        shift_en = 1'b0;
-      end
-      READ4: begin
-        nextState = done_sending_data ? READ5 : READ4;
-        load = 1'b0;
-        idle = 1'b0;
-        count_en = 1'b1;
-        count_clr = 1'b0;
-        shift_en = 1'b1;
-      end
-      READ5: begin
-        if(SDA == 1'b0) begin
-          nextState = READ6;
-          load = 1'b0;
-          idle = 1'b0;
-          count_en = 1'b1;
-          count_clr = 1'b0;
-          shift_en = 1'b0;
-        end
-        else begin
-          nextState = READ5;
-          load = 1'b0;
-          idle = 1'b0;
-          count_en = 1'b0;
-          count_clr = 1'b0;
-          shift_en = 1'b0;
-        end
-      end
-      READ6: begin
-
-      end
-    endcase
   end
 
 endmodule : I2C_Driver
