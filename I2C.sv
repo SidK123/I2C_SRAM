@@ -1,6 +1,6 @@
 `default_nettype none
 
-module I2C_Slave 
+module I2C_Master 
 (
   input logic  clock, reset_n,
   input logic  read, write,
@@ -115,4 +115,4 @@ module I2C_Slave
       end
   end
 
-endmodule : I2C_Slave 
+endmodule : I2C_Master 
