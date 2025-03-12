@@ -1,6 +1,6 @@
 `default_nettype none
 
-module I2C_Slave 
+module I2C_Master 
 (
   input logic clock,
   input logic A0, A1, A2, 
@@ -202,4 +202,4 @@ module I2C_Slave
     endcase
   end
 
-endmodule : I2C_Slave 
+endmodule : I2C_Master 
